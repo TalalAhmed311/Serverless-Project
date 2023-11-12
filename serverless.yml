@@ -1,0 +1,136 @@
+service: serverless-project
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: us-east-1
+
+functions:
+  createOrders:
+    handler: handler_create_order.create_orders
+    role: LambdaFunctionRole
+    events:
+      - httpApi:
+          path: /order
+          method: post
+    environment:
+      CUSTOMER_ORDERS_QUEUE_NAME: CustomerOrders-Queue
+
+  getCustomerOrders:
+    handler: handler_get_customer_orders.get_customer_orders
+    role: LambdaFunctionRole
+    events:
+      - httpApi:
+          path: /
+          method: get
+    environment: 
+      CUSTOMER_ORDERS_TABLE_NAME: CustomerOrdersTable
+
+    
+  processOrders:
+    handler: handler_process_order.process_order
+    role: LambdaFunctionRole
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - CustomerOrdersQueue
+              - Arn
+    environment:
+      PROCESS_ORDERS_QUEUE_NAME: ProcessOrders-Queue
+      CUSTOMER_ORDERS_TABLE_NAME: CustomerOrdersTable
+
+  updateStock:
+    handler: handler_update_stock.update_stock
+    role: LambdaFunctionRole
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - ProcessOrdersQueue
+              - Arn
+    environment:
+      UPDATE_PRODUCT_INFO_TABLE_NAME: UpdateProductInfoTable
+      
+
+resources:
+  Resources:
+
+    CustomerOrdersQueue:
+      Type: 'AWS::SQS::Queue'
+      Properties:
+        QueueName: CustomerOrders-Queue
+
+      
+    ProcessOrdersQueue:
+      Type: 'AWS::SQS::Queue'
+      Properties:
+        QueueName: ProcessOrders-Queue
+
+
+    CustomerOrdersTable:
+      Type: 'AWS::DynamoDB::Table'
+      Properties:
+        TableName: CustomerOrdersTable
+        AttributeDefinitions:
+          - AttributeName: CustomerID
+            AttributeType: S
+        KeySchema:
+          - AttributeName: CustomerID
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+
+    UpdateProductInfoTable:
+      Type: 'AWS::DynamoDB::Table'
+      Properties:
+        TableName: UpdateProductInfoTable
+        AttributeDefinitions:
+          - AttributeName: ProductID
+            AttributeType: S
+        KeySchema:
+          - AttributeName: ProductID
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+
+    LambdaFunctionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action:
+                - sts:AssumeRole
+        Policies:
+        - PolicyName: lambda-process-orders-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:*
+                Resource:
+                  - Fn::GetAtt:
+                      - CustomerOrdersQueue
+                      - Arn
+                  - Fn::GetAtt:
+                      - ProcessOrdersQueue
+                      - Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:*
+                Resource:
+                  - Fn::GetAtt:
+                      - CustomerOrdersTable
+                      - Arn
+                  - Fn::GetAtt:
+                        - UpdateProductInfoTable
+                        - Arn
+
